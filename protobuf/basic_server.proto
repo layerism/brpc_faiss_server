@@ -1,0 +1,97 @@
+syntax="proto2";
+
+package base_server;
+
+option cc_generic_services = true;
+
+
+message Context {
+    required string session_id = 1;
+    required string status = 2;
+    required string message = 3;
+    required string start_time = 4;
+    required string end_time = 5;
+}
+
+message Recall {
+    required string cfid = 1;
+    required float similarity = 2;
+}
+
+message Output {
+    optional string db_name = 1;
+    optional string db_create_time = 2;
+    optional string db_delete_time = 3;
+    optional int32 feature_dim = 4;
+    optional string feature_version = 5;
+    optional int32 search_type = 6;
+    optional string similarity_type = 7;
+    optional int64 db_size = 8;
+    optional int64 db_num_of_cluster  = 9;
+    optional int64 db_cluster_size = 10;
+    optional int32 total_database = 11;
+    repeated Recall recall = 12;
+    repeated string db_name_list = 13;
+}
+
+message Response {
+    required Context ctx = 1;
+    required Output output = 2;
+};
+
+
+// ==========================================
+// request
+// ==========================================
+message Data {
+    required string cid = 1;
+    required string feature_id = 2;
+    optional string str_feature = 3;
+    optional string b64_feature = 4;
+    optional bytes  byte_feature = 5;
+}
+
+message Request {
+    optional string db_name = 1;
+    optional string cid = 2;
+    optional string feature_id = 3;
+    optional int64  faiss_id = 4;
+
+    optional int32 feature_dim = 5;
+    optional int32 search_type = 6;
+    optional string similarity_type = 7;
+    optional string search_device = 8;
+    optional string feature_version = 9;
+
+    optional string str_feature = 10;
+    optional string b64_feature = 11;
+    optional bytes  byte_feature = 12;
+    optional int32 topk = 13;
+
+    repeated Data data = 14;
+
+    optional bool ready_for_clustering = 15;
+    optional bool ready_for_restore = 16;
+}
+
+service QueryService {
+    rpc get_status_server(Request) returns (Response);
+    rpc search_server(Request) returns (Response);
+    rpc echo_server(Request) returns (Response);
+}
+
+service CreateService {
+    rpc create_server(Request) returns (Response);
+}
+
+service UpdateService {
+    rpc batch_add_server(Request) returns (Response);
+}
+
+service RestoreService {
+    rpc restore_server(Request) returns (Response);
+}
+
+service DeleteService {
+    rpc delete_server(Request) returns (Response);
+}
