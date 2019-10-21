@@ -35,7 +35,7 @@ docker build -t ${TARGET} .
 ```bash
 SERVER_TMP_DIR=/absolute/path/to/your/tmp/dir
 mkdir ${SERVER_TMP_DIR}
-docker run -it --runtime nvidia --name brpc_faiss_server -v ${SERVER_TMP_DIR}:/data/saved_rocksdb_faiss -v `pwd`:/opt/brpc_server -p 8330:8330 ${TARGET} /bin/bash
+docker run -itd --runtime nvidia --name brpc_faiss_server -v ${SERVER_TMP_DIR}:/data/saved_rocksdb_faiss -v `pwd`:/opt/brpc_server -p 8330:8330 ${TARGET} /bin/bash
 ```
 
 3. 启动服务
