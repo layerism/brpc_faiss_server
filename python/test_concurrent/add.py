@@ -2,11 +2,11 @@ from locust import HttpLocust, TaskSet, task
 import numpy as np
 import base64
 import json
+import uuid
 import os
+import requests
 from collections import deque
 from data import *
-
-ACC = 0
 
 
 class WebsiteTasks(TaskSet):
@@ -18,26 +18,39 @@ class WebsiteTasks(TaskSet):
 
     ann_dataset = BigannData1M(file_path, n_split)
     dim = ann_dataset.dim
-    cids, fids, features = ann_dataset.get_query()
-    gt_ids = ann_dataset.get_groundtruth()
 
+    cids, fids, features = ann_dataset.get_chunk(chunk_id)
     cids = deque(cids)
     fids = deque(fids)
     features = deque(features)
-    gt_ids = deque(gt_ids)
+
+    print("#### finish loading, N: {:d}, chunk_size: {:d}".format(chunk_id, len(cids)))
 
     def on_start(self):
         pass
 
     @task
-    def search(self):
+    def add(self):
+
+        if (len(self.cids) == 0):
+            print("#### finishing add, N {:d}".format(self.chunk_id))
+            return
+
+        data = [{
+            "cid": self.cids.popleft(),
+            "feature_id": self.fids.popleft(),
+            "b64_feature": self.features.popleft()
+        }]
+
         request_data = {
             "db_name": self.db_name,
-            "b64_feature": self.features.popleft(),
-            "topk": 20,
+            "feature_version": "v1",
+            "feature_dim": self.dim,
+            "data": data,
         }
-        request_data = json.dumps(request_data)
-        response = self.client.post("search", data=request_data)
+
+        self.request_data = json.dumps(request_data)
+        response = self.client.post("batch_add", data=self.request_data)
         result = json.loads(response.text)
 
 

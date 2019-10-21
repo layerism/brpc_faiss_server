@@ -9,8 +9,7 @@ void RestoreServer::restore(
     std::string db_name = request->db_name();
 
     auto &db = db_ptr->at(db_name);
-    std::string save_path = SAVE_PATH + db_name;
-    db.restore(save_path);
+
 
     output->set_db_name(db.db_name);
     output->set_db_create_time(db.db_create_time);

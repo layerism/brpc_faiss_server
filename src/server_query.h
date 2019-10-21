@@ -1,6 +1,3 @@
-/**
- * opencv and brpc test project
- */
 #ifndef SERVER_QUERY_H_
 #define SERVER_QUERY_H_
 

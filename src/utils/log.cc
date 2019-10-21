@@ -26,17 +26,6 @@ std::string generate_uuid(unsigned int len){
 
 
 
-void pprint(const std::vector<float> &vec){
-    std::string output;
-    VectorToStr(vec, output);
-    for (uint64_t i = 0; i < vec.size(); ++i) {
-        std::cout << vec[i] << ", ";
-    }
-    std::cout << std::endl;
-}
-
-
-
 std::string localTime(){
     time_t now = time(0);
     tm *ltm = localtime(&now);

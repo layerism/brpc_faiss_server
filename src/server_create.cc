@@ -14,6 +14,7 @@ void CreateServer::create(
     int32_t search_type = request->search_type();
     std::string similarity_type = request->similarity_type();
 
+
     interfaces::Required(db_name, "request required db_name !!!");
     interfaces::Required(feature_dim, "request required feature_dim !!!");
     interfaces::Optional(search_device, "cpu");
@@ -34,6 +35,7 @@ void CreateServer::create(
     output->set_total_database(db_ptr->num_of_dbs());
     output->set_db_name(db.db_name);
     output->set_db_size(db.db_size());
+    output->set_feature_dim(db.feature_dim);
     output->set_db_num_of_cluster(db.db_num_of_cluster());
     output->set_db_create_time(db.db_create_time);
 }

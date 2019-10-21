@@ -6,13 +6,18 @@
 
 这里，我们提供一个阉割版的矢量检索服务框架，性能并不高，主要用于教学目的，不过可以基于此框架升级到比较实用的状态。
 
-阉割版目前的特性包括，都是非常简单的实现：
+阉割版目前的特性包括：
 
-1. 一定程度上支持并发的增删改查过程
-2. 支持简单的 online 方式构建索引，支持并发构建索引
+1. 支持并发的增删改查过程，查询 QPS 是上万级
+2. 采用一种特殊的随机过程对分桶函数进行 online 训练，所以可以支持实时 + 并发的入库，以 online 方式构建索引，自动索引下，写入 QPS 约为 7000-8000
 3. 支持简单的持久化方案
-4. 提供较为丰富，且利于扩充的接口形式(主要是 BRPC 功劳)
-5. 提供一些简单的并发测试脚本
+4. 提供一些简单的并发测试脚本
+5. 单机上限差不多是亿级，不过对系统资源占用极大，阉割版没有提供量化，以及多索引方案，对系统资源占用也没有限制，容易出现问题，不建议加载这种量级数据。
+
+性能评测 (测试机器为 32 核 cpu 机器，内存 60 G)：
+
+1. 200 维 x 10 M 数据，写入 QPS 约为 6000，检索 QPS 约为 2000-3000
+2. 128 维 x 1M 数据，写入 QPS 约为 8000，检索 QPS 约为 8000
 
 
 
@@ -23,25 +28,20 @@
 1. 构建镜像
 ```bash
 TARGET=brpc_faiss_server:v1
-nvidia-docker build -t ${TARGET} ./
+docker build -t ${TARGET} .
 ```
 
 2. 启动镜像，比如我们设置端口为 8330，需要将 src/config.h 里面的 IP_PORT 修改为 8330，数据缓存位置设置为 tmp，如有需要可以换到你想要的任意目录下
 ```bash
 SERVER_TMP_DIR=/absolute/path/to/your/tmp/dir
 mkdir ${SERVER_TMP_DIR}
-nvidia-docker run -itd --name brpc_faiss_server \
--v ${SERVER_TMP_DIR}:/data/saved_rocksdb_faiss \
--v `pwd`/:opt/brpc_server \
--p 8330:8330 ${TARGET} /bin/bash
+docker run -it --runtime nvidia --name brpc_faiss_server -v ${SERVER_TMP_DIR}:/data/saved_rocksdb_faiss -v `pwd`:/opt/brpc_server -p 8330:8330 ${TARGET} /bin/bash
 ```
 
 3. 启动服务
 
 ```bash
-nvidia-docker exec -it brpc_faiss_server /bin/bash
-cd /opt/brpc_server && ln -s ../third_party ./ && sh start.sh
-exit
+docker exec brpc_faiss_server /bin/sh -c /opt/brpc_server/start.sh
 ```
 
 
@@ -163,35 +163,26 @@ result = requests.post(url=url, data=request_data)
 
 这里只是提供简单的 python 接口做并发测试，机器： 32 核 cpu 机器
 
-
-
 首先安装的 python 库，其中 Locust 库是并发压测工具，可以依靠单机多核，轻松形成几万的 QPS：
 
 ```python
 pip install requests, Locust, numpy
 ```
 
+下载 bigann 1M 数据集：ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz，并解压到用户指定目录里面
 
+cd 到 python 的 test_concurrent 目录里面
 
-在根目录运行如下命令，实现通过服务初始化数据库：
+创建一个库，并执行并发入库：
 
-```bash
-cd python/test_concurrent
-IP=xx.xxx.x.xxx # 服务宿主机的ip
-PORT=8330 # 服务宿主机的端口
-python config.py --ip ${IP} --port ${PORT} --size 100000 # size 是需要填充的数据条数
+```sh
+./run.sh xx.xxx.x.xxx add.py 3m path_to_bigann
 ```
 
- 接着我们测试 ```search``` 过程的 QPS，可以接着运行：
+检索：
 
-```bash
-run.sh ${IP} ${PORT} search.py
-```
-
-如果我们要测试 ```状态查询``` 过程的 QPS，可以接着运行： 
-
-```bash
-run.sh ${IP} ${PORT} status.py
+```sh
+./run.sh xx.xxx.x.xxx search.py 3m path_to_bigann
 ```
 
 
@@ -200,28 +191,31 @@ run.sh ${IP} ${PORT} status.py
 
 ![1570446682487](image/1570446682487.png)
 
-阉割版本的检索服务压测结果，召回 top-10，测试得到的结果如下：
-
-1. 10 万数据，200 维，OMP_NUM_THREADS=8，采取 Faiss 最基本的暴力搜索 IndexFlatL2，并发只有 1500 qps 左右
-2. 100 万数据，200 维，OMP_NUM_THREADS=1，采取 Faiss 最基本的暴力搜索 IndexFlatL2，并发只有 60 qps 左右
 
 
 
-## 缺陷以及改进需求
 
-工程上的改进：
+## 动态索引方案
 
-1. 理论上来说，对于 faiss，百万级别数据，单核检索能够轻松应对 500 QPS，32核机器，理论上能够接近万量级的并发能力，阉割版本的检索并发效果非常差，如何改进？
-2. 阉割版读写部分的锁机制，粒度太粗，后期要细化
-3. 阉割版已经编译好 GPU 模式下的 faiss ，但是并没有提供 GPU 下的检索，而且 GPU 下的线程安全问题待考虑
-4. 阉割版只能跑单机模式，没法支持多机模式，比如多机的宕机数据恢复，因为目前 faiss 的 index 是实现在 RAM 里面的，宕机以后，不同机器之间的数据如何自动同步，faiss 的索引如何重新构建等都是问题
-5. 数据持久化过程依靠 rockdb 写到硬盘当中，但是该过程是单向的，也就是说内存会及时同步到硬盘，但是硬盘内容只能靠手动命令恢复到内存
+定义 $k$ 个粗中心点 $c_i$，以及分桶函数 $p_c(i|x)$：
+$$
+p_c(i|x) = \frac{e^{-\eta |x-c_i|^2}}{\sum_j e^{-\eta |x-c_j|^2}}
+$$
+给样本划分桶的时候，采取 $\arg\max_i p_c(i|x)$ 方式选择桶，当 $\eta$ 无穷大的时候，分桶函数就是最近邻分桶。
 
+对于 faiss 来讲，分桶实现方式是构建 voronoi cell，方法是 kmean，每个 cell 都是一个桶，cell 内的样本都是桶内样本，不同 cell 之间的样本是桶间样本。然而，voronoi cell 本身有一定缺点：
 
+1. 有一定可能出现大量样本落在两个 cell 之间的边界上，导致检索需要跨桶判断边界样本，增加时间开销
+2. 某个 cell 里面包含太多样本，导致检索某个桶的负担增加
 
-算法上的改进需求：
+我们提出，对于倒排矢量检索来讲，一个好的分桶策略应当满足如下要求：
 
-1. 并发的写入索引，以及流式更新索引：faiss 本身设置并不支持该种模式，多数为离线构建好索引以后，才执行索引的加载过程，所以，如何实现动态索引的构建，这涉及到 online clustering + 重新构建 faiss 的倒排分桶机制，如何实现
-2. 索引热度更新：索引对应的特征需要频繁更新，比如我们换了一个神经网络，特征变了，我们应该如何更换新的索引，由于 faiss 本身索引的构建需要 train，索引更新就不能做成实时的，如何通过在线 train，实现实时更新
-3. 局部检索能力：比如我们得到一个句子的表征矢量，通常情况下，先验上，我们还可能知道该句子属于某种类别，这时候，我们更加希望矢量检索是在同类别语料库里面进行检索，如何实现
-4. 内部实时聚类：有时候我们还希望一个检索服务内部自带无监督，半监督聚类能力，用于无人值守下的数据入库，自动打标等问题，如何实现
+1. 每个桶内的样本距离桶中心的偏差都不大，数学表述为 $ \sum_x |x-c_i|^2$ 要小
+2. 桶间样本的距离要拉大
+
+这样，检索过程只要在单个桶里检索便可以，
+
+给定一个数据分布 $p(x)$，我们希望每个样本距离自己最近的中心点更近，距离剩余中心点更远：
+$$
+l(x)=\sum_i |x-c_i|^2 p(i|x) + \sum_i |x-c_i|^2 (1-p(i|x))
+$$

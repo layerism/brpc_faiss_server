@@ -16,8 +16,16 @@ namespace utils {
 
 unsigned int random_char();
 std::string generate_uuid(unsigned int len);
-void pprint(const std::vector<float> &vec);
 std::string localTime();
+
+template<typename T>
+void pprint(const std::vector<T> &vec){
+    std::cout << std::endl;
+    for (uint32_t i = 0; i < vec.size(); ++i) {
+        std::cout << vec[i] << ", ";
+    }
+    std::cout << std::endl;
+}
 
 }
 

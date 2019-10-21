@@ -15,7 +15,7 @@ message Context {
 
 message Recall {
     required string cfid = 1;
-    required float similarity = 2;
+    required float distance = 2;
 }
 
 message Output {

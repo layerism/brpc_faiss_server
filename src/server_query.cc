@@ -57,7 +57,7 @@ void QueryServer::search(
     for (auto &recall:recalls) {
         auto r = output->add_recall();
         r->set_cfid(recall.cfid);
-        r->set_similarity(recall.similarity);
+        r->set_distance(recall.distance);
     }
 }
 

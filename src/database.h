@@ -4,18 +4,12 @@
 #include <algorithm>
 #include <stdio.h>
 #include <cstdint>
-#include <mutex>
-
-#include "faiss/IndexFlat.h"
-#include "faiss/IndexIVFFlat.h"
-#include "faiss/IndexIVFPQ.h"
-#include "faiss/AuxIndexStructures.h"
-#include "faiss/MetaIndexes.h"
 
 #include "utils/cstring.h"
 #include "utils/log.h"
 #include "utils/base64.h"
 #include "io_rocksdb.h"
+#include "faiss_index.h"
 #include "config.h"
 
 
@@ -23,22 +17,22 @@ namespace dbase {
 
 struct Recall {
     std::string cfid;
-    float similarity;
+    float distance;
 };
 
 
 struct ClusterDict {
     /*
-     * maintaining the following dict:
-     * - clusters: Map[cid] = [fid_1, fid_2, fid_3, ...]
-     * - cfids_to_ids: Map[cfid = id
-     * - ids_to_cfids: Map[id] = cfid
+     * maintaining the following struct:
+     *  - clusters dict: Map[cid] = [fid_1, fid_2, fid_3, ...]
+     *  - cfids_to_ids dict: Map[cfid] = id
+     *  - ids_to_cfids dict: Map[id] = cfid
      *
      * in which:
-     * 1. cid: cluster id, tell which cluster the feature belong to
-     * 2. fid: feature id, a unique id for the vector feature
-     * 3. id:  id for faiss index, because faiss require continue memory search
-     * 4. cfid: cid + "_" + fid
+     *  1. cid: cluster id, tell which cluster the feature belong to
+     *  2. fid: feature id, a unique id for the vector feature
+     *  3. id: interal id for build faiss, because faiss require continue memory search
+     *  4. cfid: cid + "_" + fid
      */
 
     std::unordered_map<std::string, std::vector<std::string>> clusters;
@@ -50,14 +44,16 @@ struct ClusterDict {
     void rehash(int64_t scale);
     void clear();
     void erase(std::string &cid, std::string &fid);
+    void add(std::string &cid, std::string &fid);
+
+    bool has(int64_t &id);
     bool has(std::string &cid);
     bool has(std::string &cid, std::string &fid);
-    void add(std::string &cid, std::string &fid);
-    const std::vector<std::string> &query(std::string &cid){ return this->clusters.at(cid); }
 
-    const std::string &query(int64_t &id){ return this->ids_to_cfids.at(id); }
-
+    const std::vector<std::string> &query(std::string &cid);
+    const std::string &query(int64_t &id);
     const int64_t &query(std::string &cid, std::string &fid);
+
     int64_t size(std::string &cid){ return this->clusters.at(cid).size(); }
 
     int64_t size(){ return this->clusters.size(); }
@@ -119,7 +115,8 @@ public:
 
 private:
     ClusterDict clusters;
-    faiss::IndexIDMap *faiss_index = nullptr;
+    // faiss::IndexIDMap *faiss_index = nullptr;
+    FaissIndex faiss_index;
     RocksDB save_db;
     bool is_build = 0;
     bool is_l2_norm = 0;
@@ -146,6 +143,9 @@ public:
     void purge(std::string &db_name);
 
     int32_t num_of_dbs(){ return this->dbs.size(); }
+
+private:
+    std::mutex g_mutex;
 };
 
 }

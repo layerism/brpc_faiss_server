@@ -19,9 +19,33 @@ void ClusterDict::clear(){
 
 
 
+const std::vector<std::string> &ClusterDict::query(std::string &cid){
+    if (this->has(cid)) {
+        return this->clusters.at(cid);
+    } else {
+        ThrowError("[ClusterDict::query] no such cid in cluster dict !");
+    }
+}
+
+
+
+const std::string &ClusterDict::query(int64_t &id){
+    if (this->has(id)) {
+        return this->ids_to_cfids.at(id);
+    } else {
+        ThrowError("[ClusterDict::query] no such id in cluster dict !");
+    }
+}
+
+
+
 const int64_t &ClusterDict::query(std::string &cid, std::string &fid){
-    std::string cfid = cid + DELIMITER + fid;
-    return this->cfids_to_ids.at(cfid);
+    if (this->has(cid, fid)) {
+        std::string cfid = cid + DELIMITER + fid;
+        return this->cfids_to_ids.at(cfid);
+    } else {
+        ThrowError("[ClusterDict::query] no such cid + fid in cluster dict !");
+    }
 }
 
 
@@ -30,6 +54,17 @@ bool ClusterDict::has(std::string &cid, std::string &fid){
     std::string cfid = cid + DELIMITER + fid;
     auto it = this->cfids_to_ids.find(cfid);
     if (it != this->cfids_to_ids.end()) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+
+
+bool ClusterDict::has(int64_t &id){
+    auto it = this->ids_to_cfids.find(id);
+    if (it != this->ids_to_cfids.end()) {
         return 1;
     } else {
         return 0;
@@ -103,30 +138,6 @@ void ClusterDict::pprint(std::string &cid){
 
 
 
-void DataBase::build_faiss_index(){
-    if (this->search_type == 0 && this->similarity_type == "L2") {
-        faiss::IndexFlatL2 *ptr_faiss_index = new faiss::IndexFlatL2(this->feature_dim);
-        this->faiss_index = new faiss::IndexIDMap(ptr_faiss_index);
-        this->is_l2_norm = 0;
-        this->clusters.rehash(MEDIUM_SCALE);
-        LOG(INFO) << "Init faiss::IndexFlatL2 sucess !!";
-    } else if (this->search_type == 0 && this->similarity_type == "cosine") {
-        faiss::IndexFlatIP *ptr_faiss_index = new faiss::IndexFlatIP(this->feature_dim);
-        this->faiss_index = new faiss::IndexIDMap(ptr_faiss_index);
-        this->is_l2_norm = 1;
-        this->clusters.rehash(MEDIUM_SCALE);
-        LOG(INFO) << "Init faiss::IndexFlatIP sucess !!";
-    } else if (this->search_type == 0 && this->similarity_type == "IP") {
-        faiss::IndexFlatIP *ptr_faiss_index = new faiss::IndexFlatIP(this->feature_dim);
-        this->faiss_index = new faiss::IndexIDMap(ptr_faiss_index);
-        this->is_l2_norm = 0;
-        this->clusters.rehash(MEDIUM_SCALE);
-        LOG(INFO) << "Init faiss::IndexFlatIP cosine sucess !!";
-    }
-}
-
-
-
 void DataBase::create(
     std::string db_name,
     int32_t feature_dim,
@@ -135,7 +146,10 @@ void DataBase::create(
     int32_t search_type = 0,
     std::string similarity_type = "L2"){
     // =====================
-    std::lock_guard<std::mutex> lock(this->g_mutex);
+
+    if (this->is_build == 1)
+        ThrowError("db_name: " + this->db_name + " have been created");
+
     this->db_name = db_name;
     this->feature_dim = feature_dim;
     this->db_create_time = utils::localTime();
@@ -154,12 +168,9 @@ void DataBase::create(
     this->save_db.put("meta:search_type", this->search_type);
     this->save_db.put("meta:similarity_type", this->similarity_type);
 
-    if (this->is_build == 0) {
-        this->build_faiss_index();
-        this->is_build = 1;
-    } else {
-        ThrowError("db_name: " + this->db_name + " have been created");
-    }
+    this->faiss_index.init(feature_dim, similarity_type);
+
+    this->is_build = 1;
 }
 
 
@@ -167,8 +178,7 @@ void DataBase::create(
 void DataBase::clear(){
     std::lock_guard<std::mutex> lock(this->g_mutex);
     if (this->is_build == 1) {
-        delete this->faiss_index;
-        this->faiss_index = nullptr;
+        this->faiss_index.purge();
         this->db_name = "";
         this->feature_dim = 0;
         this->db_delete_time = utils::localTime();
@@ -191,8 +201,7 @@ void DataBase::remove(std::string &cid){
             // this->remove(cid, fids[i]);
             int64_t id = this->clusters.query(cid, fids[i]);
             this->clusters.erase(cid, fids[i]);
-            faiss::IDSelectorRange del_id(id, id + 1);
-            this->faiss_index->remove_ids(del_id);
+            this->faiss_index.erase(id);
             std::string key = cid + DELIMITER + fids[i];
             this->save_db.erase(key);
         }
@@ -208,8 +217,7 @@ void DataBase::remove(std::string &cid, std::string &fid){
     if (this->clusters.has(cid, fid)) {
         int64_t id = this->clusters.query(cid, fid);
         this->clusters.erase(cid, fid);
-        faiss::IDSelectorRange del_id(id, id + 1);
-        this->faiss_index->remove_ids(del_id);
+        this->faiss_index.erase(id);
         std::string key = cid + DELIMITER + fid;
         this->save_db.erase(key);
     } else {
@@ -226,21 +234,16 @@ void DataBase::add(std::string &cid, std::string &fid, std::string &b64_feature)
     std::vector<float> feature;
     utils::Base64Decode(b64_feature, feature);
 
-    // this->clusters.add(cid, fid);
-    // int64_t id = this->clusters.query(cid, fid);
-    // this->faiss_index->add_with_ids(1, &feature[0], &id);
-
     if (!this->clusters.has(cid, fid)) {
         // cid and fid no exist, add a new one
         this->clusters.add(cid, fid);
         int64_t id = this->clusters.query(cid, fid);
-        this->faiss_index->add_with_ids(1, &feature[0], &id);
+        this->faiss_index.add_with_id(feature, id);
     } else {
         // if cid and fid exist, overwrite the feature
-        const int64_t &id = this->clusters.query(cid, fid);
-        faiss::IDSelectorRange del_id(id, id + 1);
-        this->faiss_index->remove_ids(del_id);
-        this->faiss_index->add_with_ids(1, &feature[0], &id);
+        // const int64_t &id = this->clusters.query(cid, fid);
+        // this->faiss_index.update_with_id(feature, id);
+        ThrowError(cid + "_" + fid + " is in data base, will be skipped");
     }
 }
 
@@ -264,7 +267,8 @@ std::vector<Recall> DataBase::search(std::string &b64_feature, int32_t topk){
     int64_t *recall_idx = new int64_t[topk];
     float *recall_distance = new float[topk];
 
-    this->faiss_index->search(1, &feature[0], topk, recall_distance, recall_idx);
+    this->faiss_index.search(feature, topk, recall_distance, recall_idx);
+    // this->faiss_index->search(1, &feature[0], topk, recall_distance, recall_idx);
 
     std::vector<Recall> recalls;
     for (int i = i; i < topk; ++i) {
@@ -272,7 +276,7 @@ std::vector<Recall> DataBase::search(std::string &b64_feature, int32_t topk){
         int64_t id = recall_idx[i];
         const std::string &cfid = this->clusters.query(id);
         recall.cfid = cfid;
-        recall.similarity = recall_distance[i];
+        recall.distance = recall_distance[i];
         recalls.push_back(recall);
     }
 
@@ -284,7 +288,6 @@ std::vector<Recall> DataBase::search(std::string &b64_feature, int32_t topk){
 
 
 void DataBase::restore(std::string &db_name){
-    // ===============
     std::lock_guard<std::mutex> lock(this->g_mutex);
     std::string save_path = SAVE_PATH + db_name;
     this->save_db.open(save_path);
@@ -314,11 +317,13 @@ void DataBase::restore(std::string &db_name){
 
 
 DataBase &DataBases::at(std::string &db_name){
+    std::lock_guard<std::mutex> lock(this->g_mutex);
+
     if (this->has(db_name)) {
         auto *db = this->dbs.at(db_name);
         return *db;
     } else {
-        ThrowError("db is no exist: " + db_name);
+        ThrowError("[DataBase &DataBases::at] db is no exist: " + db_name);
     }
 }
 
@@ -342,6 +347,8 @@ void DataBases::create(
     int32_t search_type = 0,
     std::string similarity_type = "L2"){
     ///=====================
+    std::lock_guard<std::mutex> lock(this->g_mutex);
+
     if (!this->has(db_name)) {
         DataBase *db = new DataBase;
         db->create(
@@ -354,13 +361,14 @@ void DataBases::create(
         );
         this->dbs.insert(std::make_pair(db_name, db));
     } else {
-        ThrowError("db is exist: " + db_name);
+        ThrowError("[void DataBases::create] db is exist: " + db_name);
     }
 }
 
 
 
 void DataBases::purge(std::string &db_name){
+    std::lock_guard<std::mutex> lock(this->g_mutex);
     if (this->has(db_name)) {
         auto &db = this->dbs.at(db_name);
         db->clear();
@@ -368,7 +376,7 @@ void DataBases::purge(std::string &db_name){
         db = nullptr;
         this->dbs.erase(db_name);
     } else {
-        ThrowError("db is no exist: " + db_name);
+        ThrowError("[void DataBases::purge] db is no exist: " + db_name);
     }
 }
 

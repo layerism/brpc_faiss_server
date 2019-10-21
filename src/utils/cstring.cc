@@ -19,14 +19,6 @@ void SplitString(const std::string &s, std::vector<std::string> &v, const std::s
 };
 
 
-void VectorToStr(const std::vector<float> &vec, std::string &str){
-    str = std::to_string(vec[0]);
-    for (uint i = 1; i < vec.size(); ++i)
-        str = str + " " + std::to_string(vec[i]);
-}
-
-
-
 void StrToVector(const std::string &str, std::vector<float> &vec){
     std::istringstream in(str);
     std::string t;

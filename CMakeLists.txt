@@ -110,7 +110,9 @@ set(AUX_SRC
     ${CMAKE_SOURCE_DIR}/src/utils/cstring.cc
     ${CMAKE_SOURCE_DIR}/src/utils/base64.cc
     ${CMAKE_SOURCE_DIR}/src/utils/log.cc
+    ${CMAKE_SOURCE_DIR}/src/tensor/linalg.cc
     ${CMAKE_SOURCE_DIR}/src/database.cc
+    ${CMAKE_SOURCE_DIR}/src/faiss_index.cc
     ${CMAKE_SOURCE_DIR}/src/interfaces.cc
     ${CMAKE_SOURCE_DIR}/src/io_rocksdb.cc
     ${CMAKE_SOURCE_DIR}/src/server_query.cc
